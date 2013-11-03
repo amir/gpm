@@ -17,14 +17,18 @@ import (
 )
 
 const (
-	get                     = "GET"
-	post                    = "POST"
-	apiEndpoint             = "https://www.googleapis.com/sj/v1"
-	googlePlayMusicEndpoint = "https://play.google.com/music"
+	get  = "GET"
+	post = "POST"
 
 	typeTrack  = "1"
 	typeArtist = "2"
 	typeAlbum  = "3"
+)
+
+var (
+	apiEndpoint             = "https://www.googleapis.com/sj/v1"
+	googleClientLogin       = "https://www.google.com/accounts/ClientLogin"
+	googlePlayMusicEndpoint = "https://play.google.com/music"
 )
 
 // Client represents a connection to Google Play Music
@@ -86,7 +90,7 @@ func (client *Client) Login() (err error) {
 		"service":     {"sj"},
 		"source":      {"go-gpmd-1"},
 	}
-	resp, err := http.PostForm("https://www.google.com/accounts/ClientLogin", data)
+	resp, err := http.PostForm(googleClientLogin, data)
 	if err != nil {
 		return
 	}
@@ -117,9 +121,6 @@ func (client *Client) Login() (err error) {
 	}
 	req.Header.Add("Authorization", "GoogleLogin auth="+client.Auth)
 	_, err = c.Do(req)
-	if err != nil {
-		return
-	}
 
 	return
 }
