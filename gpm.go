@@ -41,6 +41,7 @@ type Client struct {
 
 // Album represents metadata of an album (kind: sj#album)
 type Album struct {
+	ID     string
 	Name   string
 	Artist string
 	Tracks []Track
@@ -70,6 +71,33 @@ type Settings struct {
 		Labs    []map[string]string
 		Devices []map[string]interface{}
 	}
+}
+
+// (kind: sj#playlistEntryList)
+type PlaylistEntryList struct {
+	Data struct {
+		Items []PlaylistEntry
+	}
+}
+
+// (kind: sj#playlistEntry)
+type PlaylistEntry struct {
+	PlaylistID string
+	Track      Track
+}
+
+// (kind: sj#playlistList)
+type PlaylistList struct {
+	Data struct {
+		Items []Playlist
+	}
+}
+
+// (kind: sj#playlist)
+type Playlist struct {
+	ID                    string
+	Name                  string
+	LastModifiedTimestamp string
 }
 
 // New allocates a Google Play Music client with the given email, and password
@@ -189,18 +217,20 @@ func (client *Client) SearchAllAccessTracks(query string, maxResults int) (track
 	if err != nil {
 		return
 	}
-	for _, e := range tmp["entries"].([]interface{}) {
-		entry := e.(map[string]interface{})
-		if entry["type"] == typeTrack {
-			track := entry["track"].(map[string]interface{})
-			tracks = append(tracks, Track{
-				ID:             track["nid"].(string),
-				Title:          track["title"].(string),
-				Album:          track["album"].(string),
-				Artist:         track["artist"].(string),
-				AlbumID:        track["albumId"].(string),
-				DurationMillis: track["durationMillis"].(string),
-			})
+	if tmp["entries"] != nil {
+		for _, e := range tmp["entries"].([]interface{}) {
+			entry := e.(map[string]interface{})
+			if entry["type"] == typeTrack {
+				track := entry["track"].(map[string]interface{})
+				tracks = append(tracks, Track{
+					ID:             track["nid"].(string),
+					Title:          track["title"].(string),
+					Album:          track["album"].(string),
+					Artist:         track["artist"].(string),
+					AlbumID:        track["albumId"].(string),
+					DurationMillis: track["durationMillis"].(string),
+				})
+			}
 		}
 	}
 
@@ -225,6 +255,7 @@ func (client *Client) SearchAllAccessAlbums(query string, maxResults int) (album
 		if entry["type"] == typeAlbum {
 			album := entry["album"].(map[string]interface{})
 			albums = append(albums, Album{
+				ID:     album["albumId"].(string),
 				Name:   album["name"].(string),
 				Artist: album["artist"].(string),
 			})
@@ -253,6 +284,27 @@ func (client *Client) Settings() (settings Settings, err error) {
 	json.Unmarshal(resp, &settings)
 
 	return
+}
+
+func (client *Client) Playlists() ([]Playlist, error) {
+	resp, err := client.makeWebServiceCall(post, apiEndpoint+"/playlistfeed", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var playlistsList PlaylistList
+
+	json.Unmarshal(resp, &playlistsList)
+
+	return playlistsList.Data.Items, nil
+}
+
+func (client *Client) PlaylistEntries() (playlistEntries []PlaylistEntry, err error) {
+	resp, err := client.makeWebServiceCall(post, apiEndpoint+"/plentryfeed", nil, nil)
+	var playlistEntriesList PlaylistEntryList
+
+	json.Unmarshal(resp, &playlistEntriesList)
+
+	return playlistEntriesList.Data.Items, nil
 }
 
 // TrackInfo returns metadata associated with track ID
