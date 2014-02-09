@@ -39,11 +39,19 @@ type Client struct {
 	cookieJar http.CookieJar
 }
 
+// Artist represents metadata of an artist (kind: sj#artist)
+type Artist struct {
+	ID     string
+	Name   string
+	Albums []Album
+}
+
 // Album represents metadata of an album (kind: sj#album)
 type Album struct {
 	ID     string
 	Name   string
 	Artist string
+	Year   uint16
 	Tracks []Track
 }
 
@@ -250,15 +258,18 @@ func (client *Client) SearchAllAccessAlbums(query string, maxResults int) (album
 	if err != nil {
 		return
 	}
-	for _, e := range tmp["entries"].([]interface{}) {
-		entry := e.(map[string]interface{})
-		if entry["type"] == typeAlbum {
-			album := entry["album"].(map[string]interface{})
-			albums = append(albums, Album{
-				ID:     album["albumId"].(string),
-				Name:   album["name"].(string),
-				Artist: album["artist"].(string),
-			})
+	if tmp["entries"] != nil {
+		for _, e := range tmp["entries"].([]interface{}) {
+			entry := e.(map[string]interface{})
+			if entry["type"] == typeAlbum {
+				album := entry["album"].(map[string]interface{})
+				albums = append(albums, Album{
+					ID:     album["albumId"].(string),
+					Name:   album["name"].(string),
+					Artist: album["artist"].(string),
+					Year:   uint16(album["year"].(float64)),
+				})
+			}
 		}
 	}
 
@@ -307,18 +318,20 @@ func (client *Client) PlaylistEntries() (playlistEntries []PlaylistEntry, err er
 	return playlistEntriesList.Data.Items, nil
 }
 
-// TrackInfo returns metadata associated with track ID
-func (client *Client) TrackInfo(trackID string) (track Track, err error) {
+// ArtistInfo returns metadata associated with artist ID
+func (client *Client) ArtistInfo(artistID string, includeAlbums bool) (artist Artist, err error) {
 	data := url.Values{
-		"nid": {trackID},
+		"nid": {artistID},
 		"alt": {"json"},
 	}
-	headers := make(map[string]string)
-	headers["Content-Type"] = "application/json"
-	resp, err := client.makeWebServiceCall(get,
-		apiEndpoint+"/fetchtrack", data, headers)
+	if includeAlbums {
+		data.Set("include-albums", "True")
+	}
 
-	json.Unmarshal(resp, &track)
+	resp, err := client.makeWebServiceCall(get,
+		apiEndpoint+"/fetchartist", data, nil)
+
+	json.Unmarshal(resp, &artist)
 
 	return
 }
@@ -337,6 +350,22 @@ func (client *Client) AlbumInfo(albumID string, includeTracks bool) (album Album
 		apiEndpoint+"/fetchalbum", data, nil)
 
 	json.Unmarshal(resp, &album)
+
+	return
+}
+
+// TrackInfo returns metadata associated with track ID
+func (client *Client) TrackInfo(trackID string) (track Track, err error) {
+	data := url.Values{
+		"nid": {trackID},
+		"alt": {"json"},
+	}
+	headers := make(map[string]string)
+	headers["Content-Type"] = "application/json"
+	resp, err := client.makeWebServiceCall(get,
+		apiEndpoint+"/fetchtrack", data, headers)
+
+	json.Unmarshal(resp, &track)
 
 	return
 }
