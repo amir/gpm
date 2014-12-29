@@ -64,7 +64,7 @@ type Track struct {
 	AlbumID        string
 	Artist         string
 	DurationMillis string
-	TrackNumber    int64 // Track number
+	TrackNumber    int64
 	Year           int64
 }
 
