@@ -64,6 +64,8 @@ type Track struct {
 	AlbumID        string
 	Artist         string
 	DurationMillis string
+	TrackNumber    int64 // Track number
+	Year           int64
 }
 
 // TrackList represents a list of Tracks (kind: sj#tracklist)
