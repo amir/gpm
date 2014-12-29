@@ -222,26 +222,23 @@ func (client *Client) SearchAllAccessTracks(query string, maxResults int) (track
 	if err != nil {
 		return
 	}
-	var tmp map[string]interface{}
-	err = json.Unmarshal(searchResponse, &tmp)
+
+	var data struct {
+		Entries []struct {
+			Type  string
+			Track Track
+		}
+	}
+	err = json.Unmarshal(searchResponse, &data)
 	if err != nil {
 		return
 	}
-	if tmp["entries"] != nil {
-		for _, e := range tmp["entries"].([]interface{}) {
-			entry := e.(map[string]interface{})
-			if entry["type"] == typeTrack {
-				track := entry["track"].(map[string]interface{})
-				tracks = append(tracks, Track{
-					ID:             track["nid"].(string),
-					Title:          track["title"].(string),
-					Album:          track["album"].(string),
-					Artist:         track["artist"].(string),
-					AlbumID:        track["albumId"].(string),
-					DurationMillis: track["durationMillis"].(string),
-				})
-			}
+
+	for _, e := range data.Entries {
+		if e.Type != typeTrack {
+			continue
 		}
+		tracks = append(tracks, e.Track)
 	}
 
 	return
