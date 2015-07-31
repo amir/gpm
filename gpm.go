@@ -6,14 +6,14 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"regexp"
 	"strconv"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 const (
@@ -33,10 +33,9 @@ var (
 
 // Client represents a connection to Google Play Music
 type Client struct {
-	Email     string
-	password  string
-	Auth      string
-	cookieJar http.CookieJar
+	oauthConfig *oauth2.Config
+	token       *oauth2.Token
+	httpClient  *http.Client
 }
 
 // Artist represents metadata of an artist (kind: sj#artist)
@@ -110,55 +109,50 @@ type Playlist struct {
 	LastModifiedTimestamp string
 }
 
-// New allocates a Google Play Music client with the given email, and password
-func New(email, password string) (client *Client) {
+// New allocates a Google Play Music client with the given OAuth auth code.  Obtain a new Auth Code https://developers.google.com/oauthplayground/, by entering "https://www.googleapis.com/auth/musicmanager" in the "Input your own scopes" input box.  WARN: Do not click "Exchange auth. code for tokens" on Step 2!
+func New(clientID, clientSecret string) (client *Client) {
 	client = new(Client)
-	client.Email = email
-	client.password = password
+	client.oauthConfig = &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  "urn:ietf:wg:oauth:2.0:oob",
+		Scopes: []string{
+			"https://www.googleapis.com/auth/musicmanager",
+		},
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://accounts.google.com/o/oauth2/auth",
+			TokenURL: "https://accounts.google.com/o/oauth2/token",
+		},
+	}
+	jar, _ := cookiejar.New(nil)
+	client.httpClient = &http.Client{
+		Jar: jar,
+	}
 
 	return
 }
 
 // Login tries to get authorization token from Google Login service
-func (client *Client) Login() (err error) {
-	data := url.Values{
-		"accountType": {"HOSTED_OR_GOOGLE"},
-		"Email":       {client.Email},
-		"Passwd":      {client.password},
-		"service":     {"sj"},
-		"source":      {"go-gpmd-1"},
-	}
-	resp, err := http.PostForm(googleClientLogin, data)
+func (client *Client) AuthURL() string {
+	return client.oauthConfig.AuthCodeURL("none")
+}
+
+func (client *Client) DoAuth(authCode string) (err error) {
+	tok, err := client.oauthConfig.Exchange(oauth2.NoContext, authCode)
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return errors.New(string(body))
+
+	client.token = tok
+	client.httpClient.Transport = &oauth2.Transport{
+		Source: client.oauthConfig.TokenSource(oauth2.NoContext, tok),
 	}
 
-	re := regexp.MustCompile("Auth=(.*)")
-	if err != nil {
-		return
-	}
-	auth := re.FindStringSubmatch(string(body))
-	if len(auth) == 0 {
-		return errors.New("no authorization token in response")
-	}
-
-	client.Auth = auth[1]
-
-	client.cookieJar, _ = cookiejar.New(nil)
-	c := &http.Client{
-		Jar: client.cookieJar,
-	}
 	req, err := http.NewRequest("HEAD", googlePlayMusicEndpoint+"/listen", nil)
 	if err != nil {
 		return
 	}
-	req.Header.Add("Authorization", "GoogleLogin auth="+client.Auth)
-	_, err = c.Do(req)
+	_, err = client.httpClient.Do(req)
 
 	return
 }
@@ -169,19 +163,16 @@ func (client *Client) makeWebServiceCall(method, url string, data url.Values, he
 		url += "?" + data.Encode()
 	}
 	redirectedURL := ""
-	c := &http.Client{
-		Jar: client.cookieJar,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			redirectedURL = req.URL.String()
-			return nil
-		},
+	client.httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		redirectedURL = req.URL.String()
+		return nil
 	}
 	req, err := http.NewRequest(method, url, nil)
-	req.Header.Add("Authorization", "GoogleLogin auth="+client.Auth)
+	client.token.SetAuthHeader(req)
 	for key, value := range headers {
 		req.Header.Add(key, value)
 	}
-	resp, err := c.Do(req)
+	resp, err := client.httpClient.Do(req)
 	if err != nil {
 		return
 	}
@@ -278,7 +269,7 @@ func (client *Client) SearchAllAccessAlbums(query string, maxResults int) (album
 // Settings loads user's Google Play Music service settings
 func (client *Client) Settings() (settings Settings, err error) {
 	u, _ := url.Parse(googlePlayMusicEndpoint)
-	cookies := client.cookieJar.Cookies(u)
+	cookies := client.httpClient.Jar.Cookies(u)
 	data := url.Values{}
 	for _, c := range cookies {
 		if c.Name == "xt" {
